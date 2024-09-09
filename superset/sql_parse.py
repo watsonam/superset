@@ -822,77 +822,6 @@ class ParsedQuery:
             if statement
         }
 
-    def _extract_tables_from_statement(self, statement: exp.Expression) -> set[Table]:
-        """
-        Extract all table references in a single statement.
-
-        Please not that this is not trivial; consider the following queries:
-
-            DESCRIBE some_table;
-            SHOW PARTITIONS FROM some_table;
-            WITH masked_name AS (SELECT * FROM some_table) SELECT * FROM masked_name;
-
-        See the unit tests for other tricky cases.
-        """
-        sources: Iterable[exp.Table]
-
-        if isinstance(statement, exp.Describe):
-            # A `DESCRIBE` query has no sources in sqlglot, so we need to explicitly
-            # query for all tables.
-            sources = statement.find_all(exp.Table)
-        elif isinstance(statement, exp.Command):
-            # Commands, like `SHOW COLUMNS FROM foo`, have to be converted into a
-            # `SELECT` statetement in order to extract tables.
-            if not (literal := statement.find(exp.Literal)):
-                return set()
-
-            try:
-                pseudo_query = parse_one(
-                    f"SELECT {literal.this}",
-                    dialect=self._dialect,
-                )
-                sources = pseudo_query.find_all(exp.Table)
-            except SqlglotError:
-                return set()
-        else:
-            sources = [
-                source
-                for scope in traverse_scope(statement)
-                for source in scope.sources.values()
-                if isinstance(source, exp.Table) and not self._is_cte(source, scope)
-            ]
-
-        return {
-            Table(
-                source.name,
-                source.db if source.db != "" else None,
-                source.catalog if source.catalog != "" else None,
-            )
-            for source in sources
-        }
-
-    def _is_cte(self, source: exp.Table, scope: Scope) -> bool:
-        """
-        Is the source a CTE?
-
-        CTEs in the parent scope look like tables (and are represented by
-        exp.Table objects), but should not be considered as such;
-        otherwise a user with access to table `foo` could access any table
-        with a query like this:
-
-            WITH foo AS (SELECT * FROM target_table) SELECT * FROM foo
-
-        """
-        parent_sources = scope.parent.sources if scope.parent else {}
-        ctes_in_scope = {
-            name
-            for name, parent_scope in parent_sources.items()
-            if isinstance(parent_scope, Scope)
-            and parent_scope.scope_type == ScopeType.CTE
-        }
-
-        return source.name in ctes_in_scope
-
     @property
     def limit(self) -> int | None:
         return self._limit
@@ -1177,46 +1106,31 @@ class InsertRLSState(StrEnum):
     FOUND_TABLE = "FOUND_TABLE"
 
 
-def has_table_query(token_list: TokenList) -> bool:
+def has_table_query(expression: str, engine: str) -> bool:
     """
     Return if a statement has a query reading from a table.
 
-        >>> has_table_query(sqlparse.parse("COUNT(*)")[0])
+        >>> has_table_query("COUNT(*)", "postgresql")
         False
-        >>> has_table_query(sqlparse.parse("SELECT * FROM table")[0])
+        >>> has_table_query("SELECT * FROM table", "postgresql")
         True
 
     Note that queries reading from constant values return false:
 
-        >>> has_table_query(sqlparse.parse("SELECT * FROM (SELECT 1)")[0])
+        >>> has_table_query("SELECT * FROM (SELECT 1)", "postgresql")
         False
 
     """
-    state = InsertRLSState.SCANNING
-    for token in token_list.tokens:
-        # Ignore comments
-        if isinstance(token, sqlparse.sql.Comment):
-            continue
+    # Remove trailing semicolon.
+    expression = expression.strip().rstrip(";")
 
-        # Recurse into child token list
-        if isinstance(token, TokenList) and has_table_query(token):
-            return True
+    # Wrap the expression in parentheses if it's not already.
+    if not expression.startswith("("):
+        expression = f"({expression})"
 
-        # Found a source keyword (FROM/JOIN)
-        if imt(token, m=[(Keyword, "FROM"), (Keyword, "JOIN")]):
-            state = InsertRLSState.SEEN_SOURCE
-
-        # Found identifier/keyword after FROM/JOIN
-        elif state == InsertRLSState.SEEN_SOURCE and (
-            isinstance(token, sqlparse.sql.Identifier) or token.ttype == Keyword
-        ):
-            return True
-
-        # Found nothing, leaving source
-        elif state == InsertRLSState.SEEN_SOURCE and token.ttype != Whitespace:
-            state = InsertRLSState.SCANNING
-
-    return False
+    sql = f"SELECT {expression}"
+    statement = SQLStatement(sql, engine)
+    return any(statement.tables)
 
 
 def add_table_name(rls: TokenList, table: str) -> None:
