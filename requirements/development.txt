@@ -224,9 +224,7 @@ thrift==0.16.0
     #   apache-superset
     #   thrift-sasl
 thrift-sasl==0.4.3
-    # via
-    #   apache-superset
-    #   pyhive
+    # via apache-superset
 tomli==2.0.1
     # via
     #   build
