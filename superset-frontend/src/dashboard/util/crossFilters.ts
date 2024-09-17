@@ -37,7 +37,7 @@ import { DEFAULT_CROSS_FILTER_SCOPING } from '../constants';
 export const isCrossFiltersEnabled = (
   metadataCrossFiltersEnabled: boolean | undefined,
 ): boolean =>
-  isFeatureEnabled(FeatureFlag.DASHBOARD_CROSS_FILTERS) &&
+  isFeatureEnabled(FeatureFlag.DashboardCrossFilters) &&
   (metadataCrossFiltersEnabled === undefined || metadataCrossFiltersEnabled);
 
 export const getCrossFiltersConfiguration = (
@@ -48,11 +48,25 @@ export const getCrossFiltersConfiguration = (
   >,
   charts: ChartsState,
 ) => {
-  if (!isFeatureEnabled(FeatureFlag.DASHBOARD_CROSS_FILTERS)) {
+  if (!isFeatureEnabled(FeatureFlag.DashboardCrossFilters)) {
     return undefined;
   }
 
-  const globalChartConfiguration = metadata.global_chart_configuration
+  const chartsByDataSource: Record<string, Set<number>> = Object.values(
+    charts,
+  ).reduce((acc: Record<string, Set<number>>, chart) => {
+    if (!chart.form_data) {
+      return acc;
+    }
+    const { datasource } = chart.form_data;
+    if (!acc[datasource]) {
+      acc[datasource] = new Set();
+    }
+    acc[datasource].add(chart.id);
+    return acc;
+  }, {});
+
+  const globalChartConfiguration = metadata.global_chart_configuration?.scope
     ? {
         scope: metadata.global_chart_configuration.scope,
         chartsInScope: getChartIdsInFilterScope(
@@ -82,7 +96,7 @@ export const getCrossFiltersConfiguration = (
         {}
       )?.behaviors ?? [];
 
-    if (behaviors.includes(Behavior.INTERACTIVE_CHART)) {
+    if (behaviors.includes(Behavior.InteractiveChart)) {
       if (metadata.chart_configuration?.[chartId]) {
         // We need to clone to avoid mutating Redux state
         chartConfiguration[chartId] = cloneDeep(
@@ -97,10 +111,13 @@ export const getCrossFiltersConfiguration = (
           },
         };
       }
+      const chartDataSource = charts[chartId].form_data.datasource;
       chartConfiguration[chartId].crossFilters.chartsInScope =
         isCrossFilterScopeGlobal(chartConfiguration[chartId].crossFilters.scope)
           ? globalChartConfiguration.chartsInScope.filter(
-              id => id !== Number(chartId),
+              id =>
+                id !== Number(chartId) &&
+                chartsByDataSource[chartDataSource]?.has(id),
             )
           : getChartIdsInFilterScope(
               chartConfiguration[chartId].crossFilters.scope,

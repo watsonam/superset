@@ -53,6 +53,7 @@ class MssqlEngineSpec(BaseEngineSpec):
     max_column_name_length = 128
     allows_cte_in_subquery = False
     allow_limit_clause = False
+    supports_multivalues_insert = True
 
     _time_grain_expressions = {
         None: "{col}",
@@ -141,6 +142,8 @@ class MssqlEngineSpec(BaseEngineSpec):
     def fetch_data(
         cls, cursor: Any, limit: Optional[int] = None
     ) -> list[tuple[Any, ...]]:
+        if not cursor.description:
+            return []
         data = super().fetch_data(cursor, limit)
         # Lists of `pyodbc.Row` need to be unpacked further
         return cls.pyodbc_rows_to_tuples(data)

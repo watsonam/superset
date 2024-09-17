@@ -52,7 +52,6 @@ logger = logging.getLogger(__name__)
 class ClickHouseBaseEngineSpec(BaseEngineSpec):
     """Shared engine spec for ClickHouse."""
 
-    time_secondary_columns = True
     time_groupby_inline = True
 
     _time_grain_expressions = {
@@ -249,7 +248,7 @@ except ImportError:  # ClickHouse Connect not installed, do nothing
     pass
 
 
-class ClickHouseConnectEngineSpec(ClickHouseEngineSpec, BasicParametersMixin):
+class ClickHouseConnectEngineSpec(BasicParametersMixin, ClickHouseEngineSpec):
     """Engine spec for clickhouse-connect connector"""
 
     engine = "clickhousedb"
@@ -279,7 +278,7 @@ class ClickHouseConnectEngineSpec(ClickHouseEngineSpec, BasicParametersMixin):
 
     @classmethod
     def get_function_names(cls, database: Database) -> list[str]:
-        # pylint: disable=import-outside-toplevel,import-error
+        # pylint: disable=import-outside-toplevel, import-error
         from clickhouse_connect.driver.exceptions import ClickHouseError
 
         if cls._function_names:
@@ -341,7 +340,7 @@ class ClickHouseConnectEngineSpec(ClickHouseEngineSpec, BasicParametersMixin):
     def validate_parameters(
         cls, properties: BasicPropertiesType
     ) -> list[SupersetError]:
-        # pylint: disable=import-outside-toplevel,import-error
+        # pylint: disable=import-outside-toplevel, import-error
         from clickhouse_connect.driver import default_port
 
         parameters = properties.get("parameters", {})

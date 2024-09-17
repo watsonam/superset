@@ -16,16 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React from 'react';
 import { render, screen, waitFor } from 'spec/helpers/testing-library';
 import fetchMock from 'fetch-mock';
 import userEvent from '@testing-library/user-event';
 import * as ColorSchemeControlWrapper from 'src/dashboard/components/ColorSchemeControlWrapper';
-import * as FF from 'src/featureFlags';
 import * as SupersetCore from '@superset-ui/core';
 import PropertiesModal from '.';
 
-const spyIsFeatureEnabled = jest.spyOn(FF, 'isFeatureEnabled');
+const spyIsFeatureEnabled = jest.spyOn(SupersetCore, 'isFeatureEnabled');
 const spyColorSchemeControlWrapper = jest.spyOn(
   ColorSchemeControlWrapper,
   'default',
@@ -362,7 +360,7 @@ test('should show all roles', async () => {
   spyIsFeatureEnabled.mockReturnValue(true);
 
   const props = createProps();
-  const propsWithDashboardIndo = { ...props, dashboardInfo };
+  const propsWithDashboardInfo = { ...props, dashboardInfo };
 
   const open = () => waitFor(() => userEvent.click(getSelect()));
   const getSelect = () =>
@@ -374,7 +372,7 @@ test('should show all roles', async () => {
   const findAllSelectOptions = () =>
     waitFor(() => getElementsByClassName('.ant-select-item-option-content'));
 
-  render(<PropertiesModal {...propsWithDashboardIndo} />, {
+  render(<PropertiesModal {...propsWithDashboardInfo} />, {
     useRedux: true,
   });
 
@@ -395,7 +393,7 @@ test('should show active owners with dashboard rbac', async () => {
   spyIsFeatureEnabled.mockReturnValue(true);
 
   const props = createProps();
-  const propsWithDashboardIndo = { ...props, dashboardInfo };
+  const propsWithDashboardInfo = { ...props, dashboardInfo };
 
   const open = () => waitFor(() => userEvent.click(getSelect()));
   const getSelect = () =>
@@ -407,7 +405,7 @@ test('should show active owners with dashboard rbac', async () => {
   const findAllSelectOptions = () =>
     waitFor(() => getElementsByClassName('.ant-select-item-option-content'));
 
-  render(<PropertiesModal {...propsWithDashboardIndo} />, {
+  render(<PropertiesModal {...propsWithDashboardInfo} />, {
     useRedux: true,
   });
 
@@ -428,7 +426,7 @@ test('should show active owners without dashboard rbac', async () => {
   spyIsFeatureEnabled.mockReturnValue(false);
 
   const props = createProps();
-  const propsWithDashboardIndo = { ...props, dashboardInfo };
+  const propsWithDashboardInfo = { ...props, dashboardInfo };
 
   const open = () => waitFor(() => userEvent.click(getSelect()));
   const getSelect = () =>
@@ -440,7 +438,7 @@ test('should show active owners without dashboard rbac', async () => {
   const findAllSelectOptions = () =>
     waitFor(() => getElementsByClassName('.ant-select-item-option-content'));
 
-  render(<PropertiesModal {...propsWithDashboardIndo} />, {
+  render(<PropertiesModal {...propsWithDashboardInfo} />, {
     useRedux: true,
   });
 

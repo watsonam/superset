@@ -24,7 +24,7 @@ import {
   getTimeFormatter,
   getTimeFormatterForGranularity,
   QueryFormData,
-  smartDateFormatter,
+  SMART_DATE_ID,
   TimeFormats,
 } from '@superset-ui/core';
 import { getColorFormatters } from '@superset-ui/chart-controls';
@@ -96,13 +96,16 @@ export default function transformProps(chartProps: ChartProps<QueryFormData>) {
     rowSubtotalPosition,
     colSubtotalPosition,
     colTotals,
+    colSubTotals,
     rowTotals,
+    rowSubTotals,
     valueFormat,
     dateFormat,
     metricsLayout,
     conditionalFormatting,
     timeGrainSqla,
     currencyFormat,
+    allowRenderHtml,
   } = formData;
   const { selectedFilters } = filterState;
   const granularity = extractTimegrain(rawFormData);
@@ -110,7 +113,7 @@ export default function transformProps(chartProps: ChartProps<QueryFormData>) {
   const dateFormatters = colnames
     .filter(
       (colname: string, index: number) =>
-        coltypes[index] === GenericDataType.TEMPORAL,
+        coltypes[index] === GenericDataType.Temporal,
     )
     .reduce(
       (
@@ -118,7 +121,7 @@ export default function transformProps(chartProps: ChartProps<QueryFormData>) {
         temporalColname: string,
       ) => {
         let formatter: DateFormatter | undefined;
-        if (dateFormat === smartDateFormatter.id) {
+        if (dateFormat === SMART_DATE_ID) {
           if (granularity) {
             // time column use formats based on granularity
             formatter = getTimeFormatterForGranularity(granularity);
@@ -156,7 +159,9 @@ export default function transformProps(chartProps: ChartProps<QueryFormData>) {
     rowSubtotalPosition,
     colSubtotalPosition,
     colTotals,
+    colSubTotals,
     rowTotals,
+    rowSubTotals,
     valueFormat,
     currencyFormat,
     emitCrossFilters,
@@ -170,5 +175,6 @@ export default function transformProps(chartProps: ChartProps<QueryFormData>) {
     dateFormatters,
     onContextMenu,
     timeGrainSqla,
+    allowRenderHtml,
   };
 }

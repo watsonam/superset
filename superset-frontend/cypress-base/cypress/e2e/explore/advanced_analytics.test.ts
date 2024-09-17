@@ -37,6 +37,7 @@ describe('Advanced analytics', () => {
       .find('input[type=search]')
       .type('28 days{enter}');
 
+    cy.get('[data-test=time_compare]').find('input[type=search]').clear();
     cy.get('[data-test=time_compare]')
       .find('input[type=search]')
       .type('1 year{enter}');

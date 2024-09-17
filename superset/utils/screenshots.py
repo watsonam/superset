@@ -22,12 +22,16 @@ from typing import TYPE_CHECKING
 
 from flask import current_app
 
+from superset import feature_flag_manager
+from superset.dashboards.permalink.types import DashboardPermalinkState
 from superset.utils.hashing import md5_sha_from_dict
 from superset.utils.urls import modify_url_query
 from superset.utils.webdriver import (
     ChartStandaloneMode,
     DashboardStandaloneMode,
-    WebDriverProxy,
+    WebDriver,
+    WebDriverPlaywright,
+    WebDriverSelenium,
     WindowSize,
 )
 
@@ -61,9 +65,11 @@ class BaseScreenshot:
         self.url = url
         self.screenshot: bytes | None = None
 
-    def driver(self, window_size: WindowSize | None = None) -> WebDriverProxy:
+    def driver(self, window_size: WindowSize | None = None) -> WebDriver:
         window_size = window_size or self.window_size
-        return WebDriverProxy(self.driver_type, window_size)
+        if feature_flag_manager.is_feature_enabled("PLAYWRIGHT_REPORTS_AND_THUMBNAILS"):
+            return WebDriverPlaywright(self.driver_type, window_size)
+        return WebDriverSelenium(self.driver_type, window_size)
 
     def cache_key(
         self,
@@ -139,6 +145,7 @@ class BaseScreenshot:
         thumb_size: WindowSize | None = None,
         cache: Cache = None,
         force: bool = True,
+        cache_key: str | None = None,
     ) -> bytes | None:
         """
         Fetches the screenshot, computes the thumbnail and caches the result
@@ -150,7 +157,7 @@ class BaseScreenshot:
         :param force: Will force the computation even if it's already cached
         :return: Image payload
         """
-        cache_key = self.cache_key(window_size, thumb_size)
+        cache_key = cache_key or self.cache_key(window_size, thumb_size)
         window_size = window_size or self.window_size
         thumb_size = thumb_size or self.thumb_size
         if not force and cache and cache.get(cache_key):
@@ -196,7 +203,7 @@ class BaseScreenshot:
             logger.debug("Cropping to: %s*%s", str(img.size[0]), str(desired_width))
             img = img.crop((0, 0, img.size[0], desired_width))
         logger.debug("Resizing to %s", str(thumb_size))
-        img = img.resize(thumb_size, Image.ANTIALIAS)
+        img = img.resize(thumb_size, Image.Resampling.LANCZOS)
         new_img = BytesIO()
         if output != "png":
             img = img.convert("RGB")
@@ -243,7 +250,24 @@ class DashboardScreenshot(BaseScreenshot):
             url,
             standalone=DashboardStandaloneMode.REPORT.value,
         )
-
         super().__init__(url, digest)
         self.window_size = window_size or DEFAULT_DASHBOARD_WINDOW_SIZE
         self.thumb_size = thumb_size or DEFAULT_DASHBOARD_THUMBNAIL_SIZE
+
+    def cache_key(
+        self,
+        window_size: bool | WindowSize | None = None,
+        thumb_size: bool | WindowSize | None = None,
+        dashboard_state: DashboardPermalinkState | None = None,
+    ) -> str:
+        window_size = window_size or self.window_size
+        thumb_size = thumb_size or self.thumb_size
+        args = {
+            "thumbnail_type": self.thumbnail_type,
+            "digest": self.digest,
+            "type": "thumb",
+            "window_size": window_size,
+            "thumb_size": thumb_size,
+            "dashboard_state": dashboard_state,
+        }
+        return md5_sha_from_dict(args)

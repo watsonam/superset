@@ -16,7 +16,8 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React, { useRef } from 'react';
+import { useRef, FC } from 'react';
+
 import { NativeFilterType, styled, t, useTheme } from '@superset-ui/core';
 import { DropdownButton } from 'src/components/DropdownButton';
 import { DropdownButtonProps } from 'antd/lib/dropdown';
@@ -53,6 +54,11 @@ const TabsContainer = styled.div`
   display: flex;
   flex-direction: column;
 `;
+
+const options = [
+  { label: t('Filter'), type: NativeFilterType.NativeFilter },
+  { label: t('Divider'), type: NativeFilterType.Divider },
+];
 
 const FilterTitlePane: React.FC<Props> = ({
   getFilterTitle,

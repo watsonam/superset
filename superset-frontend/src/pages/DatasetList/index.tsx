@@ -17,19 +17,13 @@
  * under the License.
  */
 import {
-  FeatureFlag,
   getExtensionsRegistry,
   styled,
   SupersetClient,
   t,
 } from '@superset-ui/core';
-import React, {
-  FunctionComponent,
-  useState,
-  useMemo,
-  useCallback,
-} from 'react';
-import { useHistory } from 'react-router-dom';
+import { FunctionComponent, useState, useMemo, useCallback, Key } from 'react';
+import { Link, useHistory } from 'react-router-dom';
 import rison from 'rison';
 import {
   createFetchRelated,
@@ -57,7 +51,6 @@ import FacePile from 'src/components/FacePile';
 import CertifiedBadge from 'src/components/CertifiedBadge';
 import InfoTooltip from 'src/components/InfoTooltip';
 import ImportModelsModal from 'src/components/ImportModal/index';
-import { isFeatureEnabled } from 'src/featureFlags';
 import WarningIconWithTooltip from 'src/components/WarningIconWithTooltip';
 import { isUserAdmin } from 'src/dashboard/util/permissionUtils';
 import { GenericLink } from 'src/components/GenericLink/GenericLink';
@@ -69,6 +62,9 @@ import {
   CONFIRM_OVERWRITE_MESSAGE,
 } from 'src/features/datasets/constants';
 import DuplicateDatasetModal from 'src/features/datasets/DuplicateDatasetModal';
+import { useSelector } from 'react-redux';
+import { ModifiedInfo } from 'src/components/AuditInfo';
+import { QueryObjectColumns } from 'src/views/CRUD/types';
 
 const extensionsRegistry = getExtensionsRegistry();
 const DatasetDeleteRelatedExtension = extensionsRegistry.get(
@@ -158,7 +154,11 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
   } = useListViewResource<Dataset>('dataset', t('dataset'), addDangerToast);
 
   const [datasetCurrentlyDeleting, setDatasetCurrentlyDeleting] = useState<
-    (Dataset & { chart_count: number; dashboard_count: number }) | null
+    | (Dataset & {
+        charts: any;
+        dashboards: any;
+      })
+    | null
   >(null);
 
   const [datasetCurrentlyEditing, setDatasetCurrentlyEditing] =
@@ -181,6 +181,11 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
     setSSHTunnelPrivateKeyPasswordFields,
   ] = useState<string[]>([]);
 
+  const PREVENT_UNSAFE_DEFAULT_URLS_ON_DATASET = useSelector<any, boolean>(
+    state =>
+      state.common?.conf?.PREVENT_UNSAFE_DEFAULT_URLS_ON_DATASET || false,
+  );
+
   const openDatasetImportModal = () => {
     showImportModal(true);
   };
@@ -199,8 +204,7 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
   const canDelete = hasPerm('can_write');
   const canCreate = hasPerm('can_write');
   const canDuplicate = hasPerm('can_duplicate');
-  const canExport =
-    hasPerm('can_export') && isFeatureEnabled(FeatureFlag.VERSIONED_EXPORT);
+  const canExport = hasPerm('can_export');
 
   const initialSort = SORT_BY;
 
@@ -243,8 +247,8 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
       .then(({ json = {} }) => {
         setDatasetCurrentlyDeleting({
           ...dataset,
-          chart_count: json.charts.count,
-          dashboard_count: json.dashboards.count,
+          charts: json.charts,
+          dashboards: json.dashboards,
         });
       })
       .catch(
@@ -309,11 +313,20 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
             },
           },
         }: any) => {
-          const titleLink = (
-            // exploreUrl can be a link to Explore or an external link
-            // in the first case use SPA routing, else use HTML anchor
-            <GenericLink to={exploreURL}>{datasetTitle}</GenericLink>
-          );
+          let titleLink: JSX.Element;
+          if (PREVENT_UNSAFE_DEFAULT_URLS_ON_DATASET) {
+            titleLink = (
+              <Link data-test="internal-link" to={exploreURL}>
+                {datasetTitle}
+              </Link>
+            );
+          } else {
+            titleLink = (
+              // exploreUrl can be a link to Explore or an external link
+              // in the first case use SPA routing, else use HTML anchor
+              <GenericLink to={exploreURL}>{datasetTitle}</GenericLink>
+            );
+          }
           try {
             const parsedExtra = JSON.parse(extra);
             return (
@@ -332,9 +345,7 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
                   />
                 )}
                 {titleLink}
-                {description && (
-                  <InfoTooltip tooltip={description} viewBox="0 -1 24 24" />
-                )}
+                {description && <InfoTooltip tooltip={description} />}
               </FlexRowContainer>
             );
           } catch {
@@ -366,26 +377,6 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
         size: 'lg',
       },
       {
-        Cell: ({
-          row: {
-            original: { changed_on_delta_humanized: changedOn },
-          },
-        }: any) => <span className="no-wrap">{changedOn}</span>,
-        Header: t('Modified'),
-        accessor: 'changed_on_delta_humanized',
-        size: 'xl',
-      },
-      {
-        Cell: ({
-          row: {
-            original: { changed_by_name: changedByName },
-          },
-        }: any) => changedByName,
-        Header: t('Modified by'),
-        accessor: 'changed_by.first_name',
-        size: 'xl',
-      },
-      {
         accessor: 'database',
         disableSortBy: true,
         hidden: true,
@@ -400,6 +391,19 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
         id: 'owners',
         disableSortBy: true,
         size: 'lg',
+      },
+      {
+        Cell: ({
+          row: {
+            original: {
+              changed_on_delta_humanized: changedOn,
+              changed_by: changedBy,
+            },
+          },
+        }: any) => <ModifiedInfo date={changedOn} user={changedBy} />,
+        Header: t('Last modified'),
+        accessor: 'changed_on_delta_humanized',
+        size: 'xl',
       },
       {
         accessor: 'sql',
@@ -478,7 +482,7 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
               )}
               {canDuplicate && original.kind === 'virtual' && (
                 <Tooltip
-                  id="duplicate-action-tooltop"
+                  id="duplicate-action-tooltip"
                   title={t('Duplicate')}
                   placement="bottom"
                 >
@@ -500,6 +504,10 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
         hidden: !canEdit && !canDelete && !canDuplicate,
         disableSortBy: true,
       },
+      {
+        accessor: QueryObjectColumns.ChangedBy,
+        hidden: true,
+      },
     ],
     [canEdit, canDelete, canExport, openDatasetEditModal, canDuplicate, user],
   );
@@ -507,31 +515,30 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
   const filterTypes: Filters = useMemo(
     () => [
       {
-        Header: t('Owner'),
-        key: 'owner',
-        id: 'owners',
+        Header: t('Name'),
+        key: 'search',
+        id: 'table_name',
+        input: 'search',
+        operator: FilterOperator.Contains,
+      },
+      {
+        Header: t('Type'),
+        key: 'sql',
+        id: 'sql',
         input: 'select',
-        operator: FilterOperator.relationManyMany,
+        operator: FilterOperator.DatasetIsNullOrEmpty,
         unfilteredLabel: 'All',
-        fetchSelects: createFetchRelated(
-          'dataset',
-          'owners',
-          createErrorHandler(errMsg =>
-            t(
-              'An error occurred while fetching dataset owner values: %s',
-              errMsg,
-            ),
-          ),
-          user,
-        ),
-        paginate: true,
+        selects: [
+          { label: t('Virtual'), value: false },
+          { label: t('Physical'), value: true },
+        ],
       },
       {
         Header: t('Database'),
         key: 'database',
         id: 'database',
         input: 'select',
-        operator: FilterOperator.relationOneMany,
+        operator: FilterOperator.RelationOneMany,
         unfilteredLabel: 'All',
         fetchSelects: createFetchRelated(
           'dataset',
@@ -547,7 +554,7 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
         key: 'schema',
         id: 'schema',
         input: 'select',
-        operator: FilterOperator.equals,
+        operator: FilterOperator.Equals,
         unfilteredLabel: 'All',
         fetchSelects: createFetchDistinct(
           'dataset',
@@ -559,16 +566,24 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
         paginate: true,
       },
       {
-        Header: t('Type'),
-        key: 'sql',
-        id: 'sql',
+        Header: t('Owner'),
+        key: 'owner',
+        id: 'owners',
         input: 'select',
-        operator: FilterOperator.datasetIsNullOrEmpty,
+        operator: FilterOperator.RelationManyMany,
         unfilteredLabel: 'All',
-        selects: [
-          { label: t('Virtual'), value: false },
-          { label: t('Physical'), value: true },
-        ],
+        fetchSelects: createFetchRelated(
+          'dataset',
+          'owners',
+          createErrorHandler(errMsg =>
+            t(
+              'An error occurred while fetching dataset owner values: %s',
+              errMsg,
+            ),
+          ),
+          user,
+        ),
+        paginate: true,
       },
       {
         Header: t('Certified'),
@@ -576,7 +591,7 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
         id: 'id',
         urlDisplay: 'certified',
         input: 'select',
-        operator: FilterOperator.datasetIsCertified,
+        operator: FilterOperator.DatasetIsCertified,
         unfilteredLabel: t('Any'),
         selects: [
           { label: t('Yes'), value: true },
@@ -584,11 +599,24 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
         ],
       },
       {
-        Header: t('Search'),
-        key: 'search',
-        id: 'table_name',
-        input: 'search',
-        operator: FilterOperator.contains,
+        Header: t('Modified by'),
+        key: 'changed_by',
+        id: 'changed_by',
+        input: 'select',
+        operator: FilterOperator.RelationOneMany,
+        unfilteredLabel: t('All'),
+        fetchSelects: createFetchRelated(
+          'dataset',
+          'changed_by',
+          createErrorHandler(errMsg =>
+            t(
+              'An error occurred while fetching dataset datasource values: %s',
+              errMsg,
+            ),
+          ),
+          user,
+        ),
+        paginate: true,
       },
     ],
     [user],
@@ -622,21 +650,19 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
       buttonStyle: 'primary',
     });
 
-    if (isFeatureEnabled(FeatureFlag.VERSIONED_EXPORT)) {
-      buttonArr.push({
-        name: (
-          <Tooltip
-            id="import-tooltip"
-            title={t('Import datasets')}
-            placement="bottomRight"
-          >
-            <Icons.Import data-test="import-button" />
-          </Tooltip>
-        ),
-        buttonStyle: 'link',
-        onClick: openDatasetImportModal,
-      });
-    }
+    buttonArr.push({
+      name: (
+        <Tooltip
+          id="import-tooltip"
+          title={t('Import datasets')}
+          placement="bottomRight"
+        >
+          <Icons.Import data-test="import-button" />
+        </Tooltip>
+      ),
+      buttonStyle: 'link',
+      onClick: openDatasetImportModal,
+    });
   }
 
   menuData.buttons = buttonArr;
@@ -720,13 +746,80 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
           description={
             <>
               <p>
+                {t('The dataset')}
+                <b> {datasetCurrentlyDeleting.table_name} </b>
                 {t(
-                  'The dataset %s is linked to %s charts that appear on %s dashboards. Are you sure you want to continue? Deleting the dataset will break those objects.',
-                  datasetCurrentlyDeleting.table_name,
-                  datasetCurrentlyDeleting.chart_count,
-                  datasetCurrentlyDeleting.dashboard_count,
+                  'is linked to %s charts that appear on %s dashboards. Are you sure you want to continue? Deleting the dataset will break those objects.',
+                  datasetCurrentlyDeleting.charts.count,
+                  datasetCurrentlyDeleting.dashboards.count,
                 )}
               </p>
+              {datasetCurrentlyDeleting.dashboards.count >= 1 && (
+                <>
+                  <h4>{t('Affected Dashboards')}</h4>
+                  <ul>
+                    {datasetCurrentlyDeleting.dashboards.result
+                      .slice(0, 10)
+                      .map(
+                        (
+                          result: { id: Key | null | undefined; title: string },
+                          index: number,
+                        ) => (
+                          <li key={result.id}>
+                            <a
+                              href={`/superset/dashboard/${result.id}`}
+                              target="_atRiskItem"
+                            >
+                              {result.title}
+                            </a>
+                          </li>
+                        ),
+                      )}
+                    {datasetCurrentlyDeleting.dashboards.result.length > 10 && (
+                      <li>
+                        {t(
+                          '... and %s others',
+                          datasetCurrentlyDeleting.dashboards.result.length -
+                            10,
+                        )}
+                      </li>
+                    )}
+                  </ul>
+                </>
+              )}
+              {datasetCurrentlyDeleting.charts.count >= 1 && (
+                <>
+                  <h4>{t('Affected Charts')}</h4>
+                  <ul>
+                    {datasetCurrentlyDeleting.charts.result.slice(0, 10).map(
+                      (
+                        result: {
+                          id: Key | null | undefined;
+                          slice_name: string;
+                        },
+                        index: number,
+                      ) => (
+                        <li key={result.id}>
+                          <a
+                            href={`/explore/?slice_id=${result.id}`}
+                            target="_atRiskItem"
+                          >
+                            {result.slice_name}
+                          </a>
+                        </li>
+                      ),
+                    )}
+                    {datasetCurrentlyDeleting.charts.result.length > 10 && (
+                      <li>
+                        {t(
+                          '... and %s others',
+                          datasetCurrentlyDeleting.charts.result.length - 10,
+                        )}
+                      </li>
+                    )}
+                  </ul>
+                </>
+              )}
               {DatasetDeleteRelatedExtension && (
                 <DatasetDeleteRelatedExtension
                   dataset={datasetCurrentlyDeleting}
@@ -796,6 +889,9 @@ const DatasetList: FunctionComponent<DatasetListProps> = ({
               bulkActions={bulkActions}
               bulkSelectEnabled={bulkSelectEnabled}
               disableBulkSelect={toggleBulkSelect}
+              addDangerToast={addDangerToast}
+              addSuccessToast={addSuccessToast}
+              refreshData={refreshData}
               renderBulkSelectCopy={selected => {
                 const { virtualCount, physicalCount } = selected.reduce(
                   (acc, e) => {

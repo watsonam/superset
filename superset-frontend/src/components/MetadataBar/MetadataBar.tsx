@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useResizeDetector } from 'react-resize-detector';
 import { uniqWith } from 'lodash';
 import { styled } from '@superset-ui/core';
@@ -104,12 +104,13 @@ const StyledItem = styled.div<{
       text-overflow: ${collapsed ? 'unset' : 'ellipsis'};
       white-space: nowrap;
       text-decoration: ${onClick ? 'underline' : 'none'};
+      line-height: 1.4;
     }
   `}
 `;
 
-// Make sure big tootips are truncated
-const TootipContent = styled.div`
+// Make sure big tooltips are truncated
+const TooltipContent = styled.div`
   display: -webkit-box;
   -webkit-line-clamp: 20;
   -webkit-box-orient: vertical;
@@ -147,6 +148,7 @@ const Item = ({
       collapsed={collapsed}
       last={last}
       onClick={onClick ? () => onClick(type) : undefined}
+      role={onClick ? 'button' : undefined}
     >
       <Icon iconSize="l" className="metadata-icon" />
       {!collapsed && (
@@ -159,7 +161,7 @@ const Item = ({
   return isTruncated || collapsed || (tooltip && tooltip !== title) ? (
     <Tooltip
       placement={tooltipPlacement}
-      title={<TootipContent>{tooltip}</TootipContent>}
+      title={<TooltipContent>{tooltip}</TooltipContent>}
     >
       {content}
     </Tooltip>

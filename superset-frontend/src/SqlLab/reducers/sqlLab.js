@@ -17,7 +17,8 @@
  * under the License.
  */
 import { normalizeTimestamp, QueryState, t } from '@superset-ui/core';
-import getInitialState from './getInitialState';
+import { isEqual, omit } from 'lodash';
+import { shallowEqual } from 'react-redux';
 import * as actions from '../actions/sqlLab';
 import { now } from '../../utils/dates';
 import {
@@ -30,7 +31,7 @@ import {
   extendArr,
 } from '../../reduxUtils';
 
-function alterUnsavedQueryEditorState(state, updatedState, id) {
+function alterUnsavedQueryEditorState(state, updatedState, id, silent = false) {
   if (state.tabHistory[state.tabHistory.length - 1] !== id) {
     const { queryEditors } = alterInArr(
       state,
@@ -46,6 +47,7 @@ function alterUnsavedQueryEditorState(state, updatedState, id) {
     unsavedQueryEditor: {
       ...(state.unsavedQueryEditor.id === id && state.unsavedQueryEditor),
       ...(id ? { id, ...updatedState } : state.unsavedQueryEditor),
+      ...(!silent && { updatedAt: new Date().getTime() }),
     },
   };
 }
@@ -65,7 +67,10 @@ export default function sqlLabReducer(state = {}, action) {
         ...mergeUnsavedState,
         tabHistory: [...state.tabHistory, action.queryEditor.id],
       };
-      return addToArr(newState, 'queryEditors', action.queryEditor);
+      return addToArr(newState, 'queryEditors', {
+        ...action.queryEditor,
+        updatedAt: new Date().getTime(),
+      });
     },
     [actions.QUERY_EDITOR_SAVED]() {
       const { query, result, clientId } = action;
@@ -106,6 +111,7 @@ export default function sqlLabReducer(state = {}, action) {
         remoteId: progenitor.remoteId,
         name: t('Copy of %s', progenitor.name),
         dbId: action.query.dbId ? action.query.dbId : null,
+        catalog: action.query.catalog ? action.query.catalog : null,
         schema: action.query.schema ? action.query.schema : null,
         autorun: true,
         sql: action.query.sql,
@@ -149,15 +155,27 @@ export default function sqlLabReducer(state = {}, action) {
 
       newState = {
         ...newState,
-        tabHistory,
+        tabHistory:
+          tabHistory.length === 0 && newState.queryEditors.length > 0
+            ? newState.queryEditors.slice(-1).map(qe => qe.id)
+            : tabHistory,
         tables,
         queries,
         unsavedQueryEditor: {
           ...(action.queryEditor.id !== state.unsavedQueryEditor.id &&
             state.unsavedQueryEditor),
         },
+        destroyedQueryEditors: {
+          ...newState.destroyedQueryEditors,
+          [queryEditor.id]: Date.now(),
+        },
       };
       return newState;
+    },
+    [actions.CLEAR_DESTROYED_QUERY_EDITOR]() {
+      const destroyedQueryEditors = { ...state.destroyedQueryEditors };
+      delete destroyedQueryEditors[action.queryEditorId];
+      return { ...state, destroyedQueryEditors };
     },
     [actions.REMOVE_QUERY]() {
       const newQueries = { ...state.queries };
@@ -165,7 +183,7 @@ export default function sqlLabReducer(state = {}, action) {
       return { ...state, queries: newQueries };
     },
     [actions.RESET_STATE]() {
-      return { ...getInitialState() };
+      return { ...action.sqlLabInitialState };
     },
     [actions.MERGE_TABLE]() {
       const at = { ...action.table };
@@ -174,6 +192,7 @@ export default function sqlLabReducer(state = {}, action) {
         if (
           xt.dbId === at.dbId &&
           xt.queryEditorId === at.queryEditorId &&
+          xt.catalog === at.catalog &&
           xt.schema === at.schema &&
           xt.name === at.name
         ) {
@@ -183,6 +202,9 @@ export default function sqlLabReducer(state = {}, action) {
       if (existingTable) {
         if (action.query) {
           at.dataPreviewQueryId = action.query.id;
+        }
+        if (existingTable.initialized) {
+          at.id = existingTable.id;
         }
         return alterInArr(state, 'tables', existingTable, at);
       }
@@ -306,12 +328,13 @@ export default function sqlLabReducer(state = {}, action) {
             latestQueryId: action.query.id,
           },
           action.query.sqlEditorId,
+          action.query.isDataPreview,
         ),
       };
     },
     [actions.STOP_QUERY]() {
       return alterInObject(state, 'queries', action.query, {
-        state: QueryState.STOPPED,
+        state: QueryState.Stopped,
         results: [],
       });
     },
@@ -325,7 +348,7 @@ export default function sqlLabReducer(state = {}, action) {
     },
     [actions.REQUEST_QUERY_RESULTS]() {
       return alterInObject(state, 'queries', action.query, {
-        state: QueryState.FETCHING,
+        state: QueryState.Fetching,
       });
     },
     [actions.QUERY_SUCCESS]() {
@@ -333,7 +356,7 @@ export default function sqlLabReducer(state = {}, action) {
       // or the final result was unsuccessful
       if (
         action.query.state === QueryState.STOPPED ||
-        action.results.status !== QueryState.SUCCESS
+        action.results.status !== QueryState.Success
       ) {
         return state;
       }
@@ -342,7 +365,7 @@ export default function sqlLabReducer(state = {}, action) {
         progress: 100,
         results: action.results,
         rows: action?.results?.query?.rows || 0,
-        state: QueryState.SUCCESS,
+        state: QueryState.Success,
         limitingFactor: action?.results?.query?.limitingFactor,
         tempSchema: action?.results?.query?.tempSchema,
         tempTable: action?.results?.query?.tempTable,
@@ -358,11 +381,11 @@ export default function sqlLabReducer(state = {}, action) {
       return alterInObject(state, 'queries', action.query, alts);
     },
     [actions.QUERY_FAILED]() {
-      if (action.query.state === QueryState.STOPPED) {
+      if (action.query.state === QueryState.Stopped) {
         return state;
       }
       const alts = {
-        state: QueryState.FAILED,
+        state: QueryState.Failed,
         errors: action.errors,
         errorMessage: action.msg,
         endDttm: now(),
@@ -376,14 +399,12 @@ export default function sqlLabReducer(state = {}, action) {
         qeIds.indexOf(action.queryEditor?.id) > -1 &&
         state.tabHistory[state.tabHistory.length - 1] !== action.queryEditor.id
       ) {
-        const mergeUnsavedState = alterInArr(
-          state,
-          'queryEditors',
-          state.unsavedQueryEditor,
-          {
+        const mergeUnsavedState = {
+          ...alterInArr(state, 'queryEditors', state.unsavedQueryEditor, {
             ...state.unsavedQueryEditor,
-          },
-        );
+          }),
+          unsavedQueryEditor: {},
+        };
         return {
           ...(action.queryEditor.id === state.unsavedQueryEditor.id
             ? alterInArr(
@@ -421,27 +442,35 @@ export default function sqlLabReducer(state = {}, action) {
       return { ...state, activeSouthPaneTab: action.tabId };
     },
     [actions.MIGRATE_QUERY_EDITOR]() {
-      // remove migrated query editor from localStorage
-      const { sqlLab } = JSON.parse(localStorage.getItem('redux'));
-      sqlLab.queryEditors = sqlLab.queryEditors.filter(
-        qe => qe.id !== action.oldQueryEditor.id,
-      );
-      localStorage.setItem('redux', JSON.stringify({ sqlLab }));
-
+      try {
+        // remove migrated query editor from localStorage
+        const { sqlLab } = JSON.parse(localStorage.getItem('redux'));
+        sqlLab.queryEditors = sqlLab.queryEditors.filter(
+          qe => qe.id !== action.oldQueryEditor.id,
+        );
+        localStorage.setItem('redux', JSON.stringify({ sqlLab }));
+      } catch (error) {
+        // continue regardless of error
+      }
       // replace localStorage query editor with the server backed one
-      return addToArr(
-        removeFromArr(state, 'queryEditors', action.oldQueryEditor),
+      return alterInArr(
+        state,
         'queryEditors',
+        action.oldQueryEditor,
         action.newQueryEditor,
       );
     },
     [actions.MIGRATE_TABLE]() {
-      // remove migrated table from localStorage
-      const { sqlLab } = JSON.parse(localStorage.getItem('redux'));
-      sqlLab.tables = sqlLab.tables.filter(
-        table => table.id !== action.oldTable.id,
-      );
-      localStorage.setItem('redux', JSON.stringify({ sqlLab }));
+      try {
+        // remove migrated table from localStorage
+        const { sqlLab } = JSON.parse(localStorage.getItem('redux'));
+        sqlLab.tables = sqlLab.tables.filter(
+          table => table.id !== action.oldTable.id,
+        );
+        localStorage.setItem('redux', JSON.stringify({ sqlLab }));
+      } catch (error) {
+        // continue regardless of error
+      }
 
       // replace localStorage table with the server backed one
       return addToArr(
@@ -451,16 +480,9 @@ export default function sqlLabReducer(state = {}, action) {
       );
     },
     [actions.MIGRATE_TAB_HISTORY]() {
-      // remove migrated tab from localStorage tabHistory
-      const { sqlLab } = JSON.parse(localStorage.getItem('redux'));
-      sqlLab.tabHistory = sqlLab.tabHistory.filter(
-        tabId => tabId !== action.oldId,
+      const tabHistory = state.tabHistory.map(tabId =>
+        tabId === action.oldId ? action.newId : tabId,
       );
-      localStorage.setItem('redux', JSON.stringify({ sqlLab }));
-      const tabHistory = state.tabHistory.filter(
-        tabId => tabId !== action.oldId,
-      );
-      tabHistory.push(action.newId);
       return { ...state, tabHistory };
     },
     [actions.MIGRATE_QUERY]() {
@@ -479,6 +501,18 @@ export default function sqlLabReducer(state = {}, action) {
           state,
           {
             dbId: action.dbId,
+          },
+          action.queryEditor.id,
+        ),
+      };
+    },
+    [actions.QUERY_EDITOR_SET_CATALOG]() {
+      return {
+        ...state,
+        ...alterUnsavedQueryEditorState(
+          state,
+          {
+            catalog: action.catalog,
           },
           action.queryEditor.id,
         ),
@@ -509,12 +543,32 @@ export default function sqlLabReducer(state = {}, action) {
       };
     },
     [actions.QUERY_EDITOR_SET_SQL]() {
+      const { unsavedQueryEditor } = state;
+      if (
+        unsavedQueryEditor?.id === action.queryEditor.id &&
+        unsavedQueryEditor.sql === action.sql
+      ) {
+        return state;
+      }
       return {
         ...state,
         ...alterUnsavedQueryEditorState(
           state,
           {
             sql: action.sql,
+            ...(action.queryId && { latestQueryId: action.queryId }),
+          },
+          action.queryEditor.id,
+        ),
+      };
+    },
+    [actions.QUERY_EDITOR_SET_CURSOR_POSITION]() {
+      return {
+        ...state,
+        ...alterUnsavedQueryEditorState(
+          state,
+          {
+            cursorPosition: action.position,
           },
           action.queryEditor.id,
         ),
@@ -553,6 +607,7 @@ export default function sqlLabReducer(state = {}, action) {
             selectedText: action.sql,
           },
           action.queryEditor.id,
+          true,
         ),
       };
     },
@@ -611,8 +666,8 @@ export default function sqlLabReducer(state = {}, action) {
       Object.entries(action.alteredQueries).forEach(([id, changedQuery]) => {
         if (
           !state.queries.hasOwnProperty(id) ||
-          (state.queries[id].state !== QueryState.STOPPED &&
-            state.queries[id].state !== QueryState.FAILED)
+          (state.queries[id].state !== QueryState.Stopped &&
+            state.queries[id].state !== QueryState.Failed)
         ) {
           const changedOn = normalizeTimestamp(changedQuery.changed_on);
           const timestamp = Date.parse(changedOn);
@@ -624,16 +679,36 @@ export default function sqlLabReducer(state = {}, action) {
           newQueries[id] = {
             ...state.queries[id],
             ...changedQuery,
+            ...(changedQuery.startDttm && {
+              startDttm: Number(changedQuery.startDttm),
+            }),
+            ...(changedQuery.endDttm && {
+              endDttm: Number(changedQuery.endDttm),
+            }),
             // race condition:
             // because of async behavior, sql lab may still poll a couple of seconds
             // when it started fetching or finished rendering results
             state:
-              currentState === QueryState.SUCCESS &&
-              [QueryState.FETCHING, QueryState.SUCCESS].includes(prevState)
+              currentState === QueryState.Success &&
+              [
+                QueryState.Fetching,
+                QueryState.Success,
+                QueryState.Running,
+              ].includes(prevState)
                 ? prevState
                 : currentState,
           };
-          change = true;
+          if (
+            shallowEqual(
+              omit(newQueries[id], ['extra']),
+              omit(state.queries[id], ['extra']),
+            ) &&
+            isEqual(newQueries[id].extra, state.queries[id].extra)
+          ) {
+            newQueries[id] = state.queries[id];
+          } else {
+            change = true;
+          }
         }
       });
       if (!change) {
@@ -644,16 +719,27 @@ export default function sqlLabReducer(state = {}, action) {
     [actions.CLEAR_INACTIVE_QUERIES]() {
       const { queries } = state;
       const cleanedQueries = Object.fromEntries(
-        Object.entries(queries).filter(([, query]) => {
-          if (
-            ['running', 'pending'].includes(query.state) &&
-            Date.now() - query.startDttm > action.interval &&
-            query.progress === 0
-          ) {
-            return false;
-          }
-          return true;
-        }),
+        Object.entries(queries)
+          .filter(([, query]) => {
+            if (
+              ['running', 'pending'].includes(query.state) &&
+              Date.now() - query.startDttm > action.interval &&
+              query.progress === 0
+            ) {
+              return false;
+            }
+            return true;
+          })
+          .map(([id, query]) => [
+            id,
+            {
+              ...query,
+              state:
+                query.resultsKey && query.results?.status
+                  ? query.results.status
+                  : query.state,
+            },
+          ]),
       );
       return { ...state, queries: cleanedQueries };
     },
@@ -673,6 +759,12 @@ export default function sqlLabReducer(state = {}, action) {
     },
     [actions.CREATE_DATASOURCE_FAILED]() {
       return { ...state, isDatasourceLoading: false, errorMessage: action.err };
+    },
+    [actions.SET_EDITOR_TAB_LAST_UPDATE]() {
+      return { ...state, editorTabLastUpdatedAt: action.timestamp };
+    },
+    [actions.SET_LAST_UPDATED_ACTIVE_TAB]() {
+      return { ...state, lastUpdatedActiveTab: action.queryEditorId };
     },
   };
   if (action.type in actionHandlers) {

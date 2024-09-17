@@ -32,7 +32,7 @@ from tests.unit_tests.db_engine_specs.utils import (
     assert_column_spec,
     assert_convert_dttm,
 )
-from tests.unit_tests.fixtures.common import dttm
+from tests.unit_tests.fixtures.common import dttm  # noqa: F401
 
 
 @pytest.mark.parametrize(
@@ -94,7 +94,7 @@ def test_where_clause_n_prefix() -> None:
     assert query == query_expected
 
 
-def test_time_exp_mixd_case_col_1y() -> None:
+def test_time_exp_mixed_case_col_1y() -> None:
     from superset.db_engine_specs.mssql import MssqlEngineSpec
 
     col = column("MixedCase")
@@ -124,7 +124,7 @@ def test_time_exp_mixd_case_col_1y() -> None:
 def test_convert_dttm(
     target_type: str,
     expected_result: Optional[str],
-    dttm: datetime,
+    dttm: datetime,  # noqa: F811
 ) -> None:
     from superset.db_engine_specs.mssql import MssqlEngineSpec as spec
 
@@ -157,6 +157,14 @@ def test_extract_error_message() -> None:
     assert expected_message == error_message
 
 
+def test_fetch_data_no_description() -> None:
+    from superset.db_engine_specs.mssql import MssqlEngineSpec
+
+    cursor = mock.MagicMock()
+    cursor.description = []
+    assert MssqlEngineSpec.fetch_data(cursor) == []
+
+
 def test_fetch_data() -> None:
     from superset.db_engine_specs.base import BaseEngineSpec
     from superset.db_engine_specs.mssql import MssqlEngineSpec
@@ -166,9 +174,10 @@ def test_fetch_data() -> None:
         "pyodbc_rows_to_tuples",
         return_value="converted",
     ) as mock_pyodbc_rows_to_tuples:
+        cursor = mock.MagicMock()
         data = [(1, "foo")]
         with mock.patch.object(BaseEngineSpec, "fetch_data", return_value=data):
-            result = MssqlEngineSpec.fetch_data(None, 0)
+            result = MssqlEngineSpec.fetch_data(cursor, 0)
             mock_pyodbc_rows_to_tuples.assert_called_once_with(data)
             assert result == "converted"
 
@@ -282,14 +291,14 @@ def test_extract_errors() -> None:
     msg = dedent(
         """
 DB-Lib error message 20009, severity 9:
-Unable to connect: Adaptive Server is unavailable or does not exist (locahost)
+Unable to connect: Adaptive Server is unavailable or does not exist (localhost_)
         """
     )
     result = MssqlEngineSpec.extract_errors(Exception(msg))
     assert result == [
         SupersetError(
             error_type=SupersetErrorType.CONNECTION_INVALID_HOSTNAME_ERROR,
-            message='The hostname "locahost" cannot be resolved.',
+            message='The hostname "localhost_" cannot be resolved.',
             level=ErrorLevel.ERROR,
             extra={
                 "engine_name": "Microsoft SQL Server",
