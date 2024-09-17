@@ -63,7 +63,8 @@ from superset.constants import TimeGrain as TimeGrainConstants
 from superset.databases.utils import get_table_metadata, make_url_safe
 from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
 from superset.exceptions import DisallowedSQLFunction, OAuth2Error, OAuth2RedirectError
-from superset.sql_parse import ParsedQuery, SQLScript, Table
+from superset.sql.parse import SQLScript, Table
+from superset.sql_parse import ParsedQuery
 from superset.superset_typing import (
     OAuth2ClientConfig,
     OAuth2State,
@@ -347,6 +348,7 @@ class BaseEngineSpec:  # pylint: disable=too-many-public-methods
     # Does database support join-free timeslot grouping
     time_groupby_inline = False
     limit_method = LimitMethod.FORCE_LIMIT
+    supports_multivalues_insert = False
     allows_joins = True
     allows_subqueries = True
     allows_alias_in_select = True
@@ -1283,9 +1285,11 @@ class BaseEngineSpec:  # pylint: disable=too-many-public-methods
             catalog=table.catalog,
             schema=table.schema,
         ) as engine:
-            if engine.dialect.supports_multivalues_insert:
+            if (
+                engine.dialect.supports_multivalues_insert
+                or cls.supports_multivalues_insert
+            ):
                 to_sql_kwargs["method"] = "multi"
-
             df.to_sql(con=engine, **to_sql_kwargs)
 
     @classmethod
